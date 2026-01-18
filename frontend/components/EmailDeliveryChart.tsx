@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 
 export function EmailDeliveryChart() {
-  // Sample data for email delivery over time
+  
   const deliveryData = [
     { day: "Mon", sent: 120, delivered: 115, opened: 45 },
     { day: "Tue", sent: 180, delivered: 175, opened: 72 },
@@ -41,7 +41,7 @@ export function EmailDeliveryChart() {
             className="flex-1 flex flex-col items-center gap-1"
           >
             <div className="w-full flex flex-col items-center justify-end gap-1 h-full">
-              {/* Opened emails (green) */}
+              
               <motion.div
                 initial={{ height: 0 }}
                 animate={{
@@ -55,7 +55,7 @@ export function EmailDeliveryChart() {
                 className="w-full bg-gradient-to-t from-green-500 to-green-400 rounded-t"
                 style={{ minHeight: "4px" }}
               />
-              {/* Delivered emails (blue) */}
+             
               <motion.div
                 initial={{ height: 0 }}
                 animate={{
@@ -68,7 +68,7 @@ export function EmailDeliveryChart() {
                 }}
                 className="w-full bg-gradient-to-t from-blue-500 to-blue-400"
               />
-              {/* Sent emails (purple) */}
+             
               <motion.div
                 initial={{ height: 0 }}
                 animate={{
@@ -93,7 +93,7 @@ export function EmailDeliveryChart() {
         ))}
       </div>
 
-      {/* Legend */}
+     
       <div className="flex items-center justify-center gap-6 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded bg-purple-500"></div>
@@ -109,7 +109,7 @@ export function EmailDeliveryChart() {
         </div>
       </div>
 
-      {/* Stats */}
+    
       <div className="grid grid-cols-3 gap-4 mt-4">
         <div className="text-center">
           <div className="text-2xl font-bold text-slate-800 dark:text-slate-200">

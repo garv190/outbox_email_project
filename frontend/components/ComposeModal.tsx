@@ -28,18 +28,16 @@ export default function ComposeModal({
     if (!selectedFile) return;
 
     setFile(selectedFile);
-    setError(null); // Clear previous errors
-
+    setError(null); 
     const reader = new FileReader();
     reader.onload = (event) => {
       const text = event.target?.result as string;
-      // Parse CSV or text file for email addresses
-      // Better regex to match proper email format
+
       const emailRegex = /[\w\.-]+@[\w\.-]+\.[\w\.-]+/g;
       const foundEmails = text.match(emailRegex) || [];
       const uniqueEmails = Array.from(new Set(foundEmails));
       
-      // Validate emails with proper format
+     
       const validEmails = uniqueEmails.filter((email) => 
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
       );
@@ -74,7 +72,7 @@ export default function ComposeModal({
       return;
     }
 
-    // Validate start time is not in the past
+    
     const selectedTime = new Date(startTime);
     const now = new Date();
     if (selectedTime < now) {
@@ -82,7 +80,7 @@ export default function ComposeModal({
       return;
     }
 
-    // Validate at least one valid email
+  
     if (emails.length === 0) {
       setError('Please upload a file containing at least one valid email address');
       return;

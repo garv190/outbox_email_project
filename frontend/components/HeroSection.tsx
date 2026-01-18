@@ -107,7 +107,7 @@ export function HeroSection({ onSignInClick }: HeroSectionProps) {
                 alt="Email Analytics Dashboard"
                 className="w-full h-full object-cover"
                 onError={(e) => {
-                  // Fallback to a different image if first one fails
+                  
                   const target = e.target as HTMLImageElement;
                   target.src = "https://images.unsplash.com/photo-1460925895917-afdab827c52f?w=1200&h=675&fit=crop&auto=format";
                 }}

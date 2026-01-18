@@ -3,18 +3,14 @@ import { config } from '../config';
 import pool from '../db/client';
 import { randomUUID } from 'crypto';
 
-/**
- * Email service using Ethereal Email for testing
- */
+
 
 let transporter: nodemailer.Transporter | null = null;
 
-/**
- * Initialize email transporter with Ethereal credentials
- */
+
 export async function initializeEmailService(): Promise<void> {
   try {
-    // Always create a test account for Ethereal (it's a testing service)
+    
     const testAccount = await nodemailer.createTestAccount();
     
     transporter = nodemailer.createTransport({
@@ -32,7 +28,7 @@ export async function initializeEmailService(): Promise<void> {
     console.log('Pass:', testAccount.pass);
     console.log('Note: Save these credentials to view emails in Ethereal inbox');
 
-    // Verify connection
+    
     await transporter.verify();
     console.log('Email service initialized successfully');
   } catch (error) {
@@ -54,7 +50,7 @@ async function getSenderAccount(): Promise<{
   email: string;
   password: string;
 }> {
-  // Query for active sender account - supports rotating senders
+ 
   const [senders] = await pool.execute<Array<{
     id: string;
     email: string;
@@ -74,7 +70,7 @@ async function getSenderAccount(): Promise<{
     };
   }
 
-  // Create a test account using Ethereal
+
   const testAccount = await nodemailer.createTestAccount();
   const id = randomUUID();
   
