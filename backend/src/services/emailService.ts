@@ -89,9 +89,7 @@ async function getSenderAccount(): Promise<{
   };
 }
 
-/**
- * Send an email using the configured transporter
- */
+
 export async function sendEmail(
   to: string,
   subject: string,
@@ -101,20 +99,18 @@ export async function sendEmail(
     throw new Error('Email service not initialized');
   }
 
-  const sender = await getSenderAccount();
-
-  const mailOptions = {
-    from: `"ReachInbox" <${sender.email}>`,
+  const info = await transporter.sendMail({
+    from: '"ReachInbox Demo" <demo@reachinbox.local>',
     to,
     subject,
     html: body,
-    text: body.replace(/<[^>]*>/g, ''), // Strip HTML for text version
-  };
+    text: body.replace(/<[^>]*>/g, ''),
+  });
 
-  const info = await transporter.sendMail(mailOptions);
-
-  // Get preview URL from Ethereal
   const previewUrl = nodemailer.getTestMessageUrl(info);
+
+  console.log('Message ID:', info.messageId);
+  console.log('Preview URL:', previewUrl);
 
   return {
     messageId: info.messageId,
