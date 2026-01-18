@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getQueueStats } from '../queue/outboundMailQueue';
+import { getSchedulerMetrics } from '../queue/reachinboxScheduler';
 import pool from '../db/client';
 
 const router = Router();
@@ -18,8 +18,8 @@ router.get('/', async (req: Request, res: Response) => {
       dbStatus = 'disconnected';
     }
 
-    // Get queue stats
-    const queueStats = await getQueueStats();
+    // Get scheduler metrics
+    const queueStats = await getSchedulerMetrics();
 
     res.json({
       success: true,

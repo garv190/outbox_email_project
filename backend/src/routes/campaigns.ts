@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import pool from '../db/client';
-import { scheduleMailDispatch, DispatchMailJobPayload } from '../queue/outboundMailQueue';
+import { enqueueOutgoingMail, OutgoingMailTask } from '../queue/reachinboxScheduler';
 import { config } from '../config';
 import { randomUUID } from 'crypto';
 
@@ -22,13 +22,17 @@ const createCampaignSchema = z.object({
 
 /**
  * POST /api/campaigns
- * Create a new email campaign and schedule dispatches
+ * Creates a new email campaign and schedules individual email delivery tasks
+ * 
+ * This endpoint handles the full flow: validation -> DB writes -> job scheduling.
+ * We process dispatches sequentially to avoid race conditions with the unique
+ * constraint on (campaignId, recipientEmail).
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
     const data = createCampaignSchema.parse(req.body);
 
-    // Additional validation
+    // Validate at least one recipient - empty campaigns don't make sense
     if (!data.recipientEmails || data.recipientEmails.length === 0) {
       return res.status(400).json({
         success: false,
@@ -36,13 +40,14 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    // Remove duplicates and validate email format
+    // Deduplicate emails - if CSV has duplicates, we filter them out
+    // We use Set here, but DB unique constraint also prevents duplicates
     const uniqueEmails = Array.from(new Set(data.recipientEmails));
     if (uniqueEmails.length !== data.recipientEmails.length) {
       console.log(`Removed ${data.recipientEmails.length - uniqueEmails.length} duplicate emails`);
     }
 
-    // Validate email format (Zod already does this, but double-check)
+    // Double-check email format (Zod validates, but we add extra safety)
     const invalidEmails = uniqueEmails.filter(
       (email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
     );
@@ -61,10 +66,10 @@ router.post('/', async (req: Request, res: Response) => {
     const delayBetweenMs = data.delayBetweenMs || config.rateLimiting.minDelayBetweenEmailsMs;
     const hourlyLimit = data.hourlyLimit || config.rateLimiting.maxEmailsPerHourPerSender;
 
-    // Validate start time is not too far in the past (allow small buffer for clock differences)
+    // Validate start time - allow 1 minute buffer for clock drift between client/server
     const now = Date.now();
     const startTimeMs = startTime.getTime();
-    if (startTimeMs < now - 60000) { // Allow 1 minute buffer
+    if (startTimeMs < now - 60000) { // Allow 1 minute tolerance
       return res.status(400).json({
         success: false,
         error: 'Start time cannot be in the past',
@@ -78,11 +83,12 @@ router.post('/', async (req: Request, res: Response) => {
       [campaignId, data.userId, data.subject, data.body, startTime, delayBetweenMs, hourlyLimit]
     );
 
-    // Create dispatch records and schedule jobs
-    // Note: now and startTimeMs are already declared above for validation
+    // Calculate base delay from start time, then add per-email delays
+    // We use Math.max(0, ...) to handle edge case where start time is slightly in past
     const baseDelay = Math.max(0, startTimeMs - now);
 
-    // Process dispatches sequentially to handle database constraints
+    // Process dispatches one-by-one to safely handle unique constraint violations
+    // (unique constraint on campaignId + recipientEmail prevents duplicates)
     const dispatchResults = [];
     for (let index = 0; index < emailsToProcess.length; index++) {
       const email = emailsToProcess[index];
@@ -98,8 +104,9 @@ router.post('/', async (req: Request, res: Response) => {
           [dispatchId, campaignId, email, data.subject, data.body, scheduledTime]
         );
 
-        // Schedule the job
-        const payload: DispatchMailJobPayload = {
+        // Create task payload with all delivery details
+        // We include campaignId for debugging/tracing even though it's in dispatchId
+        const mailTask: OutgoingMailTask = {
           dispatchId,
           campaignId,
           recipientEmail: email,
@@ -108,7 +115,8 @@ router.post('/', async (req: Request, res: Response) => {
           scheduledTime: scheduledTime.toISOString(),
         };
 
-        await scheduleMailDispatch(payload, delay);
+        // Enqueue task with calculated delay - BullMQ will execute at the right time
+        await enqueueOutgoingMail(mailTask, delay);
         dispatchResults.push({ email, success: true });
       } catch (error: any) {
         // Handle duplicate email error gracefully

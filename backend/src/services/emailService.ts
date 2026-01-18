@@ -42,14 +42,19 @@ export async function initializeEmailService(): Promise<void> {
 }
 
 /**
- * Get or create a sender account from the database
- * In production, this would manage multiple sender accounts
+ * Retrieves or creates a sender SMTP account from the database
+ * 
+ * We store sender accounts in the DB to support multiple senders.
+ * For this demo, we use Ethereal (test SMTP), but in production
+ * this would manage real SMTP credentials for different clients.
+ * 
+ * First active sender is used; if none exist, we create an Ethereal account.
  */
 async function getSenderAccount(): Promise<{
   email: string;
   password: string;
 }> {
-  // Get first active sender or create one
+  // Query for active sender account - supports rotating senders
   const [senders] = await pool.execute<Array<{
     id: string;
     email: string;

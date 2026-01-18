@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { AuroraBackground } from '@/components/ui/aurora-background';
 import Header from '@/components/Header';
 import ScheduledEmails from '@/components/ScheduledEmails';
 import SentEmails from '@/components/SentEmails';
@@ -45,52 +47,65 @@ export default function DashboardPage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
-      </div>
+      <AuroraBackground>
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+        </div>
+      </AuroraBackground>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header user={user} onLogout={handleLogout} />
-      
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-gray-900">Email Campaigns</h2>
+    <AuroraBackground>
+      <div className="min-h-screen">
+        <Header user={user} onLogout={handleLogout} />
+        
+        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="mb-6 flex justify-between items-center"
+        >
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Email Campaigns</h2>
           <button
             onClick={() => setShowCompose(true)}
-            className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors font-medium"
+            className="bg-primary-600 text-white px-6 py-2 rounded-lg hover:bg-primary-700 transition-colors font-medium shadow-lg hover:shadow-xl"
           >
             Compose New Email
           </button>
-        </div>
+        </motion.div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 mb-6">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="border-b border-white/20 dark:border-zinc-700/50 mb-6"
+        >
           <nav className="-mb-px flex space-x-8">
             <button
               onClick={() => setActiveTab('scheduled')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'scheduled'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               Scheduled Emails
             </button>
             <button
               onClick={() => setActiveTab('sent')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                 activeTab === 'sent'
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
               }`}
             >
               Sent Emails
             </button>
           </nav>
-        </div>
+        </motion.div>
 
         {/* Tab Content */}
         {activeTab === 'scheduled' && (
@@ -99,16 +114,17 @@ export default function DashboardPage() {
         {activeTab === 'sent' && (
           <SentEmails userId={user.id} key={refreshKey} />
         )}
-      </main>
+        </main>
 
-      {showCompose && (
-        <ComposeModal
-          userId={user.id}
-          onClose={() => setShowCompose(false)}
-          onSuccess={handleComposeSuccess}
-        />
-      )}
-    </div>
+        {showCompose && (
+          <ComposeModal
+            userId={user.id}
+            onClose={() => setShowCompose(false)}
+            onSuccess={handleComposeSuccess}
+          />
+        )}
+      </div>
+    </AuroraBackground>
   );
 }
 

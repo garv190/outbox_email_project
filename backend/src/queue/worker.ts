@@ -1,113 +1,146 @@
 import { Worker, Job } from 'bullmq';
 import { config } from '../config';
-import { DispatchMailJobPayload } from './outboundMailQueue';
+import { OutgoingMailTask } from './reachinboxScheduler';
 import { sendEmail } from '../services/emailService';
 import { checkRateLimit } from '../services/rateLimiter';
 import pool from '../db/client';
 
 /**
- * BullMQ Worker for processing email dispatch jobs
- * Custom implementation with rate limiting and delay handling
+ * Worker process that handles email delivery tasks
+ * 
+ * We wrote this as a separate worker because we needed rate limiting
+ * capabilities that BullMQ's built-in limiter doesn't provide:
+ * - Per-sender rate limits (BullMQ limiter is global-only)
+ * - Graceful rescheduling when limits hit (not just dropping jobs)
+ * - DB audit trail of rate limit events
+ * 
+ * We intentionally do NOT use BullMQ's limiter option - all throughput
+ * control happens via our Redis counter system for consistency.
  */
 
-let worker: Worker | null = null;
+let emailWorker: Worker | null = null;
 
 /**
- * Process a single email dispatch job
+ * Processes a single email delivery task from the scheduler
+ * 
+ * Each task goes through: validation -> rate check -> delay enforcement -> send
+ * We update the DB status at each stage for traceability.
  */
-async function processMailDispatch(job: Job<DispatchMailJobPayload>): Promise<void> {
+async function processEmailDelivery(job: Job<OutgoingMailTask>): Promise<void> {
   const { dispatchId, recipientEmail, subject, body, scheduledTime, senderId } =
     job.data;
 
-  console.log(`Processing dispatch ${dispatchId} for ${recipientEmail}`);
+  console.log(`Processing email delivery task ${dispatchId} for ${recipientEmail}`);
 
-  // Update dispatch status to SENDING
+  // Defensive check: verify dispatch hasn't already been sent
+  // This protects against rare duplicate execution scenarios on restarts
+  const [existingDispatch] = await pool.query<Array<{ status: string }>>(
+    'SELECT status FROM MailDispatch WHERE id = ?',
+    [dispatchId]
+  );
+
+  if (existingDispatch.length > 0 && existingDispatch[0].status === 'SENT') {
+    console.log(`Dispatch ${dispatchId} already sent, skipping duplicate execution`);
+    return; // Job already completed, exit safely
+  }
+
+  // Mark dispatch as currently being processed
   await pool.execute(
     'UPDATE MailDispatch SET status = ? WHERE id = ?',
     ['SENDING', dispatchId]
   );
 
   try {
-    // Check rate limits before sending (this increments counters)
+    // Check our custom rate limits before sending
+    // This increments Redis counters atomically - if limit exceeded, we reschedule
     const rateLimitResult = await checkRateLimit(senderId);
 
     if (!rateLimitResult.allowed) {
       console.log(
-        `Rate limit exceeded for dispatch ${dispatchId}. Rescheduling...`
+        `Rate limit exceeded for dispatch ${dispatchId}. Rescheduling for next hour window...`
       );
 
-      // Note: checkRateLimit already rolled back the counters when limit exceeded
+      // Note: checkRateLimit already rolled back the counter increments when limit was exceeded
 
-      // Update status to RATE_LIMITED
+      // Update DB to reflect the rescheduling
       await pool.execute(
         'UPDATE MailDispatch SET status = ?, scheduledTime = ? WHERE id = ?',
         ['RATE_LIMITED', new Date(rateLimitResult.resetTime), dispatchId]
       );
 
-      // Reschedule the job for the next hour window
-      const delay = rateLimitResult.resetTime - Date.now();
-      if (delay > 0) {
-        // Move job to delayed queue
-        await job.moveToDelayed(delay);
-        // Return without throwing to prevent retry
+      // Move this job to the delayed queue until the next hour window
+      const delayUntilNextHour = rateLimitResult.resetTime - Date.now();
+      if (delayUntilNextHour > 0) {
+        await job.moveToDelayed(delayUntilNextHour);
+        // Return without throwing - this prevents BullMQ from retrying immediately
         return;
       } else {
-        // If delay is negative (shouldn't happen), retry immediately
+        // Shouldn't happen, but if delay is somehow negative, throw to trigger retry
         throw new Error('Rate limit exceeded, retrying...');
       }
     }
 
-    // Apply minimum delay between emails
+    // Enforce minimum delay between individual email sends
+    // This mimics provider throttling and prevents burst sending
     if (config.rateLimiting.minDelayBetweenEmailsMs > 0) {
       await new Promise((resolve) =>
         setTimeout(resolve, config.rateLimiting.minDelayBetweenEmailsMs)
       );
     }
 
-    // Send the email
-    const result = await sendEmail(recipientEmail, subject, body);
+    // Actually send the email via Ethereal (test SMTP)
+    const sendResult = await sendEmail(recipientEmail, subject, body);
 
-    // Update dispatch as sent
+    // Mark as successfully sent with timestamp and message ID
     await pool.execute(
       'UPDATE MailDispatch SET status = ?, sentTime = ?, senderEmail = ? WHERE id = ?',
-      ['SENT', new Date(), result.messageId, dispatchId]
+      ['SENT', new Date(), sendResult.messageId, dispatchId]
     );
 
     console.log(
-      `Email sent successfully: ${recipientEmail} (Preview: ${result.previewUrl || 'N/A'})`
+      `Email delivery completed: ${recipientEmail} (Preview: ${sendResult.previewUrl || 'N/A'})`
     );
   } catch (error: any) {
-    console.error(`Failed to send email for dispatch ${dispatchId}:`, error);
+    console.error(`Failed to deliver email for dispatch ${dispatchId}:`, error);
 
-    // Update dispatch as failed
+    // Record the failure with error message for debugging
     await pool.execute(
       'UPDATE MailDispatch SET status = ?, errorMessage = ? WHERE id = ?',
       ['FAILED', error.message || 'Unknown error', dispatchId]
     );
 
-    // Re-throw if it's a rate limit error (so BullMQ can reschedule)
+    // Re-throw rate limit errors so BullMQ knows to reschedule
+    // Other errors will trigger BullMQ's retry mechanism (3 attempts)
     if (error.message?.includes('Rate limit exceeded')) {
       throw error;
     }
 
-    // For other errors, let BullMQ handle retries
+    // Let BullMQ handle retries for transient errors
     throw error;
   }
 }
 
 /**
- * Initialize and start the worker
+ * Initializes and starts the email delivery worker
+ * 
+ * We configure concurrency based on env vars because different deployments
+ * may have different capacity.
+ * 
+ * IMPORTANT: We intentionally do NOT enable BullMQ's built-in limiter here.
+ * All throughput control is handled via Redis-backed counters (reachSessionLimit keys)
+ * so rate limits remain consistent across workers and restarts. BullMQ's limiter
+ * is global-only and doesn't support per-sender limits or rescheduling behavior.
  */
 export function startWorker(): void {
-  if (worker) {
-    console.log('Worker already started');
+  if (emailWorker) {
+    console.log('Email worker already started');
     return;
   }
 
-  worker = new Worker(
-    'outbound-mail-queue',
-    async (job: Job<DispatchMailJobPayload>) => {
-      return processMailDispatch(job);
+  emailWorker = new Worker(
+    'reachinboxScheduler',
+    async (job: Job<OutgoingMailTask>) => {
+      return processEmailDelivery(job);
     },
     {
       connection: {
@@ -116,38 +149,40 @@ export function startWorker(): void {
         password: config.redis.password,
       },
       concurrency: config.rateLimiting.workerConcurrency,
-      limiter: {
-        // We handle rate limiting manually, but this provides additional safety
-        max: config.rateLimiting.maxEmailsPerHour,
-        duration: 3600000, // 1 hour
-      },
+      // We intentionally avoid BullMQ's built-in limiter here.
+      // All throughput control is handled via Redis-backed counters (reachSessionLimit keys)
+      // so rate limits remain consistent across workers and restarts.
+      // BullMQ's limiter is global-only and doesn't support per-sender limits or rescheduling.
     }
   );
 
-  worker.on('completed', (job) => {
-    console.log(`Job ${job.id} completed`);
+  emailWorker.on('completed', (job) => {
+    console.log(`Email delivery task ${job.id} completed`);
   });
 
-  worker.on('failed', (job, err) => {
-    console.error(`Job ${job?.id} failed:`, err.message);
+  emailWorker.on('failed', (job, err) => {
+    console.error(`Email delivery task ${job?.id} failed:`, err.message);
   });
 
-  worker.on('error', (err) => {
-    console.error('Worker error:', err);
+  emailWorker.on('error', (err) => {
+    console.error('Email worker error:', err);
   });
 
   console.log(
-    `Worker started with concurrency: ${config.rateLimiting.workerConcurrency}`
+    `Email delivery worker started with concurrency: ${config.rateLimiting.workerConcurrency}`
   );
 }
 
 /**
- * Stop the worker gracefully
+ * Gracefully shuts down the email delivery worker
+ * 
+ * Important: This lets BullMQ finish processing current jobs before exit.
+ * Without this, jobs in progress might be lost on restart.
  */
 export async function stopWorker(): Promise<void> {
-  if (worker) {
-    await worker.close();
-    worker = null;
-    console.log('Worker stopped');
+  if (emailWorker) {
+    await emailWorker.close();
+    emailWorker = null;
+    console.log('Email worker stopped');
   }
 }

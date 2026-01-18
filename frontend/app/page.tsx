@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useGoogleLogin } from '@react-oauth/google';
+import { motion } from 'framer-motion';
+import { HeroSection } from '@/components/HeroSection';
 
 interface User {
   id: string;
@@ -14,6 +16,7 @@ interface User {
 export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
 
   const handleGoogleSuccess = async (tokenResponse: any) => {
     setLoading(true);
@@ -88,19 +91,46 @@ export default function LoginPage() {
     },
   });
 
+  // Show hero section first, then login form when "Sign In" is clicked
+  if (!showLogin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 dark:from-zinc-900 dark:to-zinc-800">
+        <HeroSection onSignInClick={() => setShowLogin(true)} />
+      </div>
+    );
+  }
+
+  // Show login form
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">ReachInbox</h1>
-          <p className="text-gray-600">Email Scheduler Dashboard</p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-zinc-50 to-zinc-100 dark:from-zinc-900 dark:to-zinc-800 p-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="bg-white/80 dark:bg-zinc-900/80 backdrop-blur-md rounded-2xl shadow-2xl p-8 w-full max-w-md border border-white/20"
+      >
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+              Welcome Back
+            </h2>
+            <p className="text-gray-600 dark:text-gray-400 text-sm mt-1">
+              Sign in to continue to ReachInbox
+            </p>
+          </div>
+          <button
+            onClick={() => setShowLogin(false)}
+            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl"
+          >
+            ×
+          </button>
         </div>
 
         <div className="space-y-4">
           <button
             onClick={() => login()}
             disabled={loading}
-            className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 flex items-center justify-center space-x-3 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-white dark:bg-zinc-800 border border-gray-300 dark:border-zinc-700 rounded-lg px-4 py-3 flex items-center justify-center space-x-3 hover:bg-gray-50 dark:hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
             <svg
               className="w-5 h-5"
@@ -112,18 +142,18 @@ export default function LoginPage() {
               <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
               <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
             </svg>
-            <span className="text-gray-700 font-medium">
+            <span className="text-gray-700 dark:text-gray-200 font-medium">
               {loading ? 'Signing in...' : 'Sign in with Google'}
             </span>
           </button>
         </div>
 
         {loading && (
-          <div className="mt-4 text-center text-sm text-gray-500">
+          <div className="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
             Signing you in...
           </div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
